@@ -1,7 +1,7 @@
 """
 The present module performs the optimization of the coefficients of the SOP-FBR
 representation of a 2D PES of the shape (V(x, y) = x^2 + y^2 + lambda*xy)
-It makes use of Numpy and Tensorly packages
+It depends on the Numpy, Tensorly and NLopt packages
 """
 import os
 import time
@@ -126,7 +126,8 @@ for j, el in enumerate(CARRAY):
 MAXEVAL = 1
 MINRMS = 0.01
 
-OPT = nlopt.opt(nlopt.LN_BOBYQA, PARDIM)
+OPT = nlopt.opt(nlopt.G_MLSL_LDS, PARDIM)
+OPT.set_local_optimizer(nlopt.opt(nlopt.LN_BOBYQA, PARDIM))
 OPT.set_lower_bounds(VALUE_LOWER)
 OPT.set_upper_bounds(VALUE_UPPER)
 OPT.set_min_objective(rho)
