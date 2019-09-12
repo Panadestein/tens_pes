@@ -29,26 +29,26 @@ def v2d(x_dim, y_dim):
 
 def vchpot(q_array, c_cheb, c_comb):
     """ Computes the value of the SOP-FBR potential by first
-        conforming the vij(k) matrixes, then reshaping the core
-        tensor, and penforming the tensor dot product.
+        conforming the vij(k) matrices (vectors in this case),
+        then reshaping the core tensor, and penforming
+        the tensor dot product.
     """
     coeff_tk = np.array(np.split(c_cheb, c_cheb.shape[0] / CHEBDIM))
     chev_coeff = np.array(np.split(coeff_tk, np.cumsum(MARRAY))[0:-1])
-    v_matrixes = []
+    v_vectors = []
     for kdof, m_kp in enumerate(MARRAY):
-        v_kp = np.zeros((q_array.shape[0], m_kp))
-        for i_kp, val in enumerate(q_array):
-            for j_kp in np.arange(m_kp):
-                v_kp[i_kp, j_kp] = cheby.chebval(
-                    val[kdof], chev_coeff[kdof][j_kp])
-        v_matrixes.append(v_kp)
-    v_matrixes = np.array(v_matrixes)
+        v_kp = np.zeros(m_kp)
+        for j_kp in np.arange(m_kp):
+            v_kp[j_kp] = cheby.chebval(
+                q_array[kdof], chev_coeff[kdof][j_kp])
+        v_vectors.append(v_kp)
+    v_vectors = np.array(v_vectors)
 
     prod = c_comb.reshape(MARRAY)
-    for idx, elem in enumerate(v_matrixes):
-        prod = tl.tenalg.mode_dot(prod, elem, idx)
+    for elem in v_vectors:
+        prod = tl.tenalg.mode_dot(prod, elem, 0)
 
-    return prod
+    return prod[0]
 
 
 # RMS
@@ -64,7 +64,10 @@ def rho(carray, grad):
 
     c_cheb = carray[:NCHEB]
     c_comb = carray[NCHEB::]
-    e_vch = vchpot(G_AB, c_cheb, c_comb)
+    e_vch = []
+    for elem in G_AB:
+        e_vch.append(vchpot(elem, c_cheb, c_comb))
+    e_vch = np.array(e_vch)
     rms = np.sqrt(((e_vch - E_AB) ** 2).mean())
 
     with open("rms", "a") as file_target:
@@ -86,7 +89,7 @@ def rho(carray, grad):
 X = np.linspace(-50, 50, num=15)
 Y = np.linspace(-50, 50, num=15)
 G_AB = np.concatenate((X[:, None], Y[:, None]), axis=1)
-E_AB = v2d(X[:, None], Y[None, :])
+E_AB = np.vectorize(v2d)(X, Y)
 np.savetxt("e_ref", E_AB)
 
 # Total number of Chebyshev polinomial's coefficients
@@ -95,8 +98,9 @@ NCHEB = np.sum(MARRAY) * CHEBDIM
 # Total number of configurations
 NCOMB = np.prod(MARRAY)
 
-# Initial Chebyshev expansion
-C_CHEB = np.random.uniform(-60, 60, size=NCHEB)
+# Initial Chebyshev expansion (Heuristic approximation)
+C_CHEB = np.array([-127.15408096, 133.65981845,
+                   -27.31688288, 3.47552376] * np.sum(MARRAY))
 
 # Initial Configuration interaction
 C_COMB = np.random.uniform(low=0., high=1., size=NCOMB)
@@ -131,10 +135,6 @@ OPT.set_stopval(MINRMS)
 X_OPT = OPT.optimize(CARRAY)
 MINF = OPT.last_optimum_value()
 
-np.savetxt("params_opt", X_OPT)
-with open("minrms", "w") as minrms:
-    minrms.write(str(MINF))
-
 # Reducing directory entropy
 
 TIMESTR = time.strftime("%Y%m%d_%H%M%S")  # A unique time stamp for out_dir
@@ -143,6 +143,36 @@ os.makedirs(OUT_DIR)
 os.rename("e_sopfbr", OUT_DIR + "/e_sopfbr")
 os.rename("e_ref", OUT_DIR + "/e_ref")
 os.rename("rms", OUT_DIR + "/rms")
-os.rename("minrms", OUT_DIR + "/minrms")
-os.rename("params_opt", OUT_DIR + "/params_opt")
 os.rename("params_steps", OUT_DIR + "/params_steps")
+
+# Performing RMSE analysis
+
+RMS = []
+with open(OUT_DIR + '/rms', 'r') as list_rms:
+    for line in list_rms:
+        RMS.append(float(line.strip().split()[0]))
+
+RMS = np.array(RMS)
+RMS_SORTED = np.sort(RMS)
+INDEX_SORT = np.argsort(RMS)
+MIN_RMS_IDX = INDEX_SORT[0]
+
+with open(OUT_DIR + "/min_rms", 'w') as minrms:
+    minrms.write(str(MIN_RMS_IDX))
+
+# Performing energy analysis
+
+E_APROX = np.loadtxt(OUT_DIR + "/e_sopfbr").reshape(-1, np.size(E_AB))
+E_SOP = E_APROX[MIN_RMS_IDX]
+
+with open(OUT_DIR + "/table_energies", 'w') as table:
+    np.savetxt(table, np.array([E_AB, E_SOP]).T, fmt=['%s', '%s'])
+
+# Performing parameters analysis
+
+with open(OUT_DIR + "/params_steps", 'r') as list_parameter:
+    PARTOT = np.loadtxt(list_parameter).reshape(-1, PARDIM)
+    PAR_OPT = PARTOT[MIN_RMS_IDX]
+
+with open(OUT_DIR + "/params_opt", "w") as mopac_param:
+    np.savetxt(mopac_param, PAR_OPT)
