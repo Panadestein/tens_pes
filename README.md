@@ -1,2 +1,2 @@
 # sop_fbr
-This are the source files for the SOP-FBR optimization
+These are the sources for the SOP-FBR optimization script.
