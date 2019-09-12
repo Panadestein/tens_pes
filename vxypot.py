@@ -121,6 +121,7 @@ for j, el in enumerate(CARRAY):
 
 MAXEVAL = 1
 MINRMS = 0.01
+TOL = 0.1
 
 OPT = nlopt.opt(nlopt.G_MLSL_LDS, PARDIM)
 OPT.set_local_optimizer(nlopt.opt(nlopt.LN_BOBYQA, PARDIM))
@@ -129,6 +130,7 @@ OPT.set_upper_bounds(VALUE_UPPER)
 OPT.set_min_objective(rho)
 OPT.set_maxeval(MAXEVAL)
 OPT.set_stopval(MINRMS)
+OPT.set_ftol_abs(TOL)
 X_OPT = OPT.optimize(CARRAY)
 MINF = OPT.last_optimum_value()
 
