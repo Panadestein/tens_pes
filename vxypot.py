@@ -12,9 +12,9 @@ import nlopt
 
 # System paramters
 
-NDOF = 2  # f
+NDOF = 1  # f
 CHEBDIM = 4  # t_k (for the moment the same for all k)
-MARRAY = np.array([5, 5])  # m_k
+MARRAY = np.array([10, 10])  # m_k
 LMB = 1  # lambda
 
 # Reference 2D potential
@@ -29,26 +29,26 @@ def v2d(x_dim, y_dim):
 
 def vchpot(q_array, c_cheb, c_comb):
     """ Computes the value of the SOP-FBR potential by first
-        conforming the vij(k) matrices (vectors in this case),
-        then reshaping the core tensor, and penforming
-        the tensor dot product.
+        conforming the vij(k) matrices, then reshaping
+        the core tensor, and penforming the tensor dot product.
     """
     coeff_tk = np.array(np.split(c_cheb, c_cheb.shape[0] / CHEBDIM))
     chev_coeff = np.array(np.split(coeff_tk, np.cumsum(MARRAY))[0:-1])
-    v_vectors = []
+    v_matrices = []
     for kdof, m_kp in enumerate(MARRAY):
-        v_kp = np.zeros(m_kp)
-        for j_kp in np.arange(m_kp):
-            v_kp[j_kp] = cheby.chebval(
-                q_array[kdof], chev_coeff[kdof][j_kp])
-        v_vectors.append(v_kp)
-    v_vectors = np.array(v_vectors)
+        v_kp = np.zeros((q_array.shape[0], m_kp))
+        for i_kp, val in enumerate(q_array):
+            for j_kp in np.arange(m_kp):
+                v_kp[i_kp, j_kp] = cheby.chebval(
+                    val[kdof], chev_coeff[kdof][j_kp])
+        v_matrices.append(v_kp)
+    v_matrices = np.array(v_matrices)
 
     prod = c_comb.reshape(MARRAY)
-    for elem in v_vectors:
-        prod = tl.tenalg.mode_dot(prod, elem, 0)
+    for idx, elem in enumerate(v_matrices):
+        prod = tl.tenalg.mode_dot(prod, elem, idx)
 
-    return prod[0]
+    return prod
 
 
 # RMS
@@ -64,10 +64,7 @@ def rho(carray, grad):
 
     c_cheb = carray[:NCHEB]
     c_comb = carray[NCHEB::]
-    e_vch = []
-    for elem in G_AB:
-        e_vch.append(vchpot(elem, c_cheb, c_comb))
-    e_vch = np.array(e_vch)
+    e_vch = vchpot(G_AB, c_cheb, c_comb)
     rms = np.sqrt(((e_vch - E_AB) ** 2).mean())
 
     with open("rms", "a") as file_target:
@@ -77,20 +74,20 @@ def rho(carray, grad):
             param_steps.write(str(elem) + "\n")
         param_steps.write(" \n")
     with open("e_sopfbr", "a") as file_energies:
-        for elem in e_vch:
+        for elem in e_vch.flatten():
             file_energies.write(str(elem) + "\n")
         file_energies.write(" \n")
 
     return rms
 
-# Reference data and parameter guess input
+# Reference data and parameter guess input (square grid)
 
 
-X = np.linspace(-50, 50, num=15)
-Y = np.linspace(-50, 50, num=15)
+X = np.loadtxt('./grid')
+Y = np.loadtxt('./grid')
 G_AB = np.concatenate((X[:, None], Y[:, None]), axis=1)
-E_AB = np.vectorize(v2d)(X, Y)
-np.savetxt("e_ref", E_AB)
+E_AB = v2d(X[:, None], Y[None, :])
+np.savetxt("e_ref", E_AB.flatten())
 
 # Total number of Chebyshev polinomial's coefficients
 NCHEB = np.sum(MARRAY) * CHEBDIM
@@ -98,15 +95,14 @@ NCHEB = np.sum(MARRAY) * CHEBDIM
 # Total number of configurations
 NCOMB = np.prod(MARRAY)
 
-# Initial Chebyshev expansion (Heuristic approximation)
-C_CHEB = np.array([-127.15408096, 133.65981845,
-                   -27.31688288, 3.47552376] * np.sum(MARRAY))
+# Initial Chebyshev expansion from file
+C_CHEB = np.loadtxt('./cchev')
 
-# Initial Configuration interaction
-C_COMB = np.random.uniform(low=0., high=1., size=NCOMB)
+# Initial CTensor from file
+C_TENS = np.loadtxt('./ctens')
 
 # Total parameter array and dimension
-CARRAY = np.concatenate((C_CHEB, C_COMB))
+CARRAY = np.concatenate((C_CHEB, C_TENS))
 PARDIM = CARRAY.shape[0]
 
 # Fitting process
@@ -163,11 +159,12 @@ with open(OUT_DIR + "/min_rms", 'w') as minrms:
 
 # Performing energy analysis
 
-E_APROX = np.loadtxt(OUT_DIR + "/e_sopfbr").reshape(-1, np.size(E_AB))
+E_APROX = np.loadtxt(OUT_DIR + "/e_sopfbr").reshape(-1,
+                                                    np.size(E_AB.flatten()))
 E_SOP = E_APROX[MIN_RMS_IDX]
 
 with open(OUT_DIR + "/table_energies", 'w') as table:
-    np.savetxt(table, np.array([E_AB, E_SOP]).T, fmt=['%s', '%s'])
+    np.savetxt(table, np.array([E_AB.flatten(), E_SOP]).T, fmt=['%s', '%s'])
 
 # Performing parameters analysis
 
