@@ -13,6 +13,7 @@ import nlopt
 # System paramters
 
 NDOF = 1  # f
+CONTR_DOF = 0  # Index of contracted DOF
 CHEBDIM = 4  # t_k (for the moment the same for all k)
 MARRAY = np.array([10, 10])  # m_k
 LMB = 1  # lambda
@@ -35,7 +36,7 @@ def vchpot(q_array, c_cheb, c_comb):
     coeff_tk = np.array(np.split(c_cheb, c_cheb.shape[0] / CHEBDIM))
     chev_coeff = np.array(np.split(coeff_tk, np.cumsum(MARRAY))[0:-1])
     v_matrices = []
-    for kdof, m_kp in enumerate(MARRAY):
+    for kdof, m_kp in enumerate(np.delete(MARRAY, CONTR_DOF)):
         v_kp = np.zeros((q_array.shape[0], m_kp))
         for i_kp, val in enumerate(q_array):
             for j_kp in np.arange(m_kp):
@@ -86,11 +87,12 @@ def rho(carray, grad):
 X = np.loadtxt('./grid')
 Y = np.loadtxt('./grid')
 G_AB = np.concatenate((X[:, None], Y[:, None]), axis=1)
+G_AB = np.delete(G_AB, CONTR_DOF, axis=1)  # Ditching contracted DOF
 E_AB = v2d(X[:, None], Y[None, :])
 np.savetxt("e_ref", E_AB.flatten())
 
 # Total number of Chebyshev polinomial's coefficients
-NCHEB = np.sum(MARRAY) * CHEBDIM
+NCHEB = np.sum(np.delete(MARRAY, CONTR_DOF)) * CHEBDIM
 
 # Total number of configurations
 NCOMB = np.prod(MARRAY)
@@ -107,7 +109,7 @@ PARDIM = CARRAY.shape[0]
 
 # Fitting process
 
-PDEV = 0.3
+PDEV = 0.3  # Parameters maximun deviation
 VALUE_UPPER = np.zeros(len(CARRAY))
 VALUE_LOWER = np.zeros(len(CARRAY))
 
