@@ -12,10 +12,11 @@ import nlopt
 
 # System paramters
 
-NDOF = 1  # f
-CONTR_DOF = 0  # Index of contracted DOF
 CHEBDIM = 4  # t_k (for the moment the same for all k)
-MARRAY = np.array([10, 10])  # m_k
+CONTR_DOF = 0  # Index of contracted DOF
+DTEN_DIM = np.array([10, 10])  # Dj1..ik..jf infer len(ik) from CONTR_DOF
+JOTAS = np.delete(np.arange(DTEN_DIM.shape[0]), CONTR_DOF)
+CCHEB_SLICE = np.cumsum(np.delete(DTEN_DIM, CONTR_DOF))
 LMB = 1  # lambda
 
 # Reference 2D potential
@@ -33,21 +34,21 @@ def vchpot(q_array, c_cheb, c_comb):
         conforming the vij(k) matrices, then reshaping
         the core tensor, and penforming the tensor dot product.
     """
-    coeff_tk = np.array(np.split(c_cheb, c_cheb.shape[0] / CHEBDIM))
-    chev_coeff = np.array(np.split(coeff_tk, np.cumsum(MARRAY))[0:-1])
+    cheb_tk = np.array(np.split(c_cheb, c_cheb.shape[0] / CHEBDIM))
+    cheb_tk_mk = np.array(np.split(cheb_tk, CCHEB_SLICE)[0:-1])
     v_matrices = []
-    for kdof, m_kp in enumerate(np.delete(MARRAY, CONTR_DOF)):
-        v_kp = np.zeros((q_array.shape[0], m_kp))
-        for i_kp, val in enumerate(q_array):
+    for kdof, m_kp in enumerate(np.delete(DTEN_DIM, CONTR_DOF)):
+        v_kp = np.zeros((q_array[kdof].shape[0], m_kp))
+        for i_kp, val in enumerate(q_array[kdof]):
             for j_kp in np.arange(m_kp):
                 v_kp[i_kp, j_kp] = cheby.chebval(
-                    val[kdof], chev_coeff[kdof][j_kp])
+                    val, cheb_tk_mk[kdof][j_kp])
         v_matrices.append(v_kp)
     v_matrices = np.array(v_matrices)
 
-    prod = c_comb.reshape(MARRAY)
+    prod = c_comb.reshape(DTEN_DIM, order='F')
     for idx, elem in enumerate(v_matrices):
-        prod = tl.tenalg.mode_dot(prod, elem, idx)
+        prod = tl.tenalg.mode_dot(prod, elem, JOTAS[idx])
 
     return prod
 
@@ -81,35 +82,25 @@ def rho(carray, grad):
 
     return rms
 
-# Reference data and parameter guess input (square grid)
 
+# Reference data and parameter guess input (X -> contracted DOF)
 
-X = np.loadtxt('./grid')
-Y = np.loadtxt('./grid')
-G_AB = np.concatenate((X[:, None], Y[:, None]), axis=1)
-G_AB = np.delete(G_AB, CONTR_DOF, axis=1)  # Ditching contracted DOF
+X = np.loadtxt('./grid_cntr')
+Y = np.linspace(-1., 1., num=10000)
+G_AB = np.array([Y])
 E_AB = v2d(X[:, None], Y[None, :])
 np.savetxt("e_ref", E_AB.flatten())
 
 # Total number of Chebyshev polinomial's coefficients
-NCHEB = np.sum(np.delete(MARRAY, CONTR_DOF)) * CHEBDIM
+NCHEB = np.sum(np.delete(DTEN_DIM, CONTR_DOF)) * CHEBDIM
 
-# Total number of configurations
-NCOMB = np.prod(MARRAY)
-
-# Initial Chebyshev expansion from file
-C_CHEB = np.loadtxt('./cchev')
-
-# Initial CTensor from file
-C_TENS = np.loadtxt('./ctens')
-
-# Total parameter array and dimension
-CARRAY = np.concatenate((C_CHEB, C_TENS))
+# Total parameter array and dimension (cchev||ctens)
+CARRAY = np.loadtxt('params_init')
 PARDIM = CARRAY.shape[0]
 
-# Fitting process
+# Parameters deviation and artificial noise
 
-PDEV = 0.3  # Parameters maximun deviation
+PDEV = 0.5
 VALUE_UPPER = np.zeros(len(CARRAY))
 VALUE_LOWER = np.zeros(len(CARRAY))
 
@@ -121,9 +112,10 @@ for j, el in enumerate(CARRAY):
         VALUE_UPPER[j] = CARRAY[j] * (1.0 - PDEV)
         VALUE_LOWER[j] = CARRAY[j] * (1.0 + PDEV)
 
+# Fitting process
+
 MAXEVAL = 1
-MINRMS = 0.01
-TOL = 0.1
+MINRMS = 0.000000001
 
 OPT = nlopt.opt(nlopt.G_MLSL_LDS, PARDIM)
 OPT.set_local_optimizer(nlopt.opt(nlopt.LN_BOBYQA, PARDIM))
@@ -132,7 +124,6 @@ OPT.set_upper_bounds(VALUE_UPPER)
 OPT.set_min_objective(rho)
 OPT.set_maxeval(MAXEVAL)
 OPT.set_stopval(MINRMS)
-OPT.set_ftol_abs(TOL)
 X_OPT = OPT.optimize(CARRAY)
 MINF = OPT.last_optimum_value()
 
